@@ -187,7 +187,8 @@ class Interpolant:
         self.begin_batch()
         alpha = self.solve(y); psi = self.dot_T(alpha); tol = 1e-8 * max(1.0, float(np.abs(y).max()))
         res = y - A @ psi
-        if np.abs(res).max() > tol:                          # rounding of the jittered solve: one refinement step
+        for _ in range(3):                                   # rounding of the jittered solve: iterative refinement to tol
+            if np.abs(res).max() <= tol: break
             alpha = alpha + self.solve(res); psi = self.dot_T(alpha); res = y - A @ psi; self.n_refine += 1
         assert np.abs(res).max() <= tol, ('the kernel interpolant does not reproduce its constraints', float(np.abs(res).max()), tol)
         self.alpha = alpha
@@ -208,7 +209,9 @@ class Interpolant:
         col = Bd[P0:] - R @ R[nt].T                          # Schur complement at the new positions
         S[:, nt] = col; S[nt, :] = col.T; nn = np.ix_(nt, nt); S[nn] = 0.5 * (col[nt] + col[nt].T); S[nt, nt] += self.jit
         self.R, self.S = R, S
-        Lb = self._view('L', (t, t)); Lb[:] = S; L22, info = dpotrf(Lb.T, lower=1, overwrite_a=1, clean=0)
+        Lb = self._view('L', (t, t)); Lb[:] = S
+        if t == 0: self.L22 = Lb; return                      # no tail rows: nothing to factor (LAPACK returns a copy of an empty array)
+        L22, info = dpotrf(Lb.T, lower=1, overwrite_a=1, clean=0)
         assert info == 0 and np.shares_memory(L22, Lb), ('Cholesky of the tail block', info)
         self.L22 = L22
 

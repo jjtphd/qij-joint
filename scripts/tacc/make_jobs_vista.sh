@@ -26,9 +26,11 @@ COMMIT=${COMMIT:?COMMIT=<hash the clone must be at>}
 CLONE=${CLONE:-/work2/08772/jjt277/stampede3/software/qij_joint}
 VENV=${VENV:-/home1/08772/jjt277/envs/qij_vista}
 ACCOUNT=AST24021; PARTITION=gg; CORES=144; N=${N:-10000}; SEED=0
-# qij runs 16 workers per draw (so k, the cap on splits per round, is 16 by the author's rule k = the number of jobs),
-# 9 draws at a time on the node's 144 cores; oracle, ij and boot run one draw per core.
-QIJ_WORKERS=${QIJ_WORKERS:-16}; QIJ_PAR=$((CORES / QIJ_WORKERS))
+# qij: one worker per draw, 144 draws at a time, k = 16 passed explicitly (k, the cap on splits per round, defaults to the
+# worker count; the 2026-11-13 run at 16 workers x 9 draws per node loaded the node at 18 of 144: a refit of these
+# estimators takes milliseconds, the draw's time is the method's serial work, so the pool idles). The records are the
+# same as at 16 workers with k = 16: workers only parallelise the evaluations.
+QIJ_WORKERS=${QIJ_WORKERS:-1}; QIJ_K=${QIJ_K:-16}; QIJ_PAR=$((CORES / QIJ_WORKERS))
 FIRST=${FIRST:-0}; LAST=${LAST:-1000}
 SCR=${SCRATCH:?SCRATCH not set}/QIJ_JOINT
 PROJ=${WORK:?WORK not set}/projects/QIJ_JOINT
@@ -49,7 +51,7 @@ job() {
         # a line is "<dataset> <estimator> <method> [extra flags]"; the draws are fanned out over the node: one per core for
         # oracle, ij and boot; QIJ_PAR at a time with QIJ_WORKERS workers each for qij
         local par=$CORES wk=1
-        case "$line" in *" qij"*) par=$QIJ_PAR; wk=$QIJ_WORKERS;; esac
+        case "$line" in *" qij"*) par=$QIJ_PAR; wk=$QIJ_WORKERS; line="$line --k $QIJ_K";; esac
         body+="
 echo \"--- \$(date '+%F %T') $line draws $FIRST:$LAST, $par at a time, $wk worker(s) each\"
 mkdir -p $LOGS/${name}_draws
@@ -103,15 +105,12 @@ refs)
     done
     ;;
 qij)
-    # walls from the laptop's one-draw times at 16 workers (sheared Core 1 46 s, fp 115 s at eps 0.01, imf and mvt about
-    # 20 s), 9 draws at a time: Core 1 about 1.5 h per eps at eps 0.01; fp about 3.5 h at eps 0.01 and the 11 eps together
-    # within 12 h. A job that reaches its wall is resubmitted: finished draws are skipped.
-    for eps in $EPS_ALL; do
-        job "qij_cloudfil_u_p1_eps${eps:0:6}" 04:00:00 "$SCR/runs" "$PROJ/runs" "cloudfil_u p1 qij --eps $eps"
-    done
-    for ds in mvt fp imf pareto; do
-        lines=(); for eps in $EPS_ALL; do lines+=("$ds all qij --eps $eps"); done
-        job "qij_${ds}_all" 12:00:00 "$SCR/runs" "$PROJ/runs" "${lines[@]}"
+    # one job per dataset over all eps; walls from the 2026-11-13 records' busy_s at eps 0.01 (the largest eps cost): sheared
+    # Core 1 47 s, fp 45 s, mvt 10 s, imf 10 s, pareto 6 s per draw, 144 draws at a time -> at most 6 min per eps, about
+    # 1 h for the 11 eps of Core 1 or fp. A job that reaches its wall is resubmitted: finished draws are skipped.
+    for ds in "cloudfil_u p1" "mvt all" "fp all" "imf all" "pareto all"; do
+        lines=(); for eps in $EPS_ALL; do lines+=("$ds qij --eps $eps"); done
+        job "qij_${ds%% *}" 03:00:00 "$SCR/runs" "$PROJ/runs" "${lines[@]}"
     done
     ;;
 *) echo "unknown job set $SET"; exit 1 ;;

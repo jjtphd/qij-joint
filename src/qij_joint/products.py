@@ -292,8 +292,11 @@ def write_readme(runs_root: str) -> str:
     hosts and code commits. Returns the path written."""
     by_case = {}
     for path in sorted(glob.glob(os.path.join(runs_root, '*', '*', 'manifest.json'))):
-        with open(path) as f:
-            m = json.load(f)
+        try:                                                  # another run may be replacing this manifest right now
+            with open(path) as f:
+                m = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            continue
         case = os.path.basename(os.path.dirname(os.path.dirname(path)))
         by_case.setdefault(case, []).append(m)
 
