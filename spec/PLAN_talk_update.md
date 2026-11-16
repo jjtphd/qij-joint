@@ -304,7 +304,32 @@ submission on an explicit go). V6 rsync back into the canonical tree; summaries;
       (core-seconds slightly favour qij: boot parallelises perfectly, qij's refit is serial).
 - [x] SUBMITTED 2026-11-13 (author's "ok go"): refs 8 jobs + qij 15 jobs, Slurm 1141544–1141566, all pending at
       submit. Vista clone's remote set to github.com/jjtphd/qij-joint (author ran it; the account was renamed).
-- [ ] jobs down → rsync $WORK/projects/QIJ_JOINT/runs into Research/QIJ_joint/runs → manifests/README → summaries → figures
+- [x] 2026-11-13 run, outcome (read 2026-11-16): refs all COMPLETE (oracle, ij, boot B5000, 1000/1000 draws, mvt/fp/imf/pareto,
+      on $SCRATCH/QIJ_JOINT/runs and rsynced to $WORK/projects/QIJ_JOINT/runs). qij: Core 1 987–995/1000 per ε; mvt and
+      fp still running at the last look (fp on ε 3 of 11); imf 969–1000; pareto 269–414 per ε. The qij folders of this
+      round are NOT usable for the talk (failures below, k 16) and are to be moved aside to $SCRATCH/QIJ_JOINT/runs_qij_1113
+      before the rerun (not yet done: the ssh session expired). Nodes ran at load 18 of 144: the 16-worker pool idled.
+- [x] failures seen and FIXED on main (d19e587): (1) interpolant tail-block Cholesky on an empty block (a fit with no tail
+      rows; LAPACK returns a copy of an empty array and the aliasing assert fired) — pareto 65 % of draws, imf a few;
+      (2) 'does not reproduce its constraints' after one refinement step, about 1 % of draws everywhere — now up to three
+      steps; (3) write_readme reading a manifest another run was replacing. NOT fixed: 'both children of an active row
+      are redundant', 3 mvt draws of 11 000 (method.py, the split loop). Transient: Lustre stale file handles (9 draws).
+      The pareto fix was NOT checked on a draw (the run was blocked); the next job's first draws show it.
+- [x] AUTHOR'S RULES 2026-11-16: (a) k = the number of available cores of the machine running the job — on a Vista node
+      144, one draw at a time per node with 144 workers (jobs: one per dataset and ε, 55 jobs, make_jobs_vista.sh at
+      ed4184a, NOT generated on Vista yet, NOT submitted); locally k = the laptop's core count, never 144. (b) Partial
+      results are no results: every dataset must complete. (c) Before proposing any run: state what it is to achieve and
+      what will be done with the result; runs whose results barely move progress are not wanted. (d) Be succinct.
+- [ ] THE BLOCKER — the port is slow. The author's paper runs (analysis/summaries/paper_s1000/*_cost.parquet, N = 2000,
+      local): per draw fp 0.4–1.0 s, mvt 0.4–0.6 s, pareto 0.3–0.6 s, imf 7–10 s. The port at N = 10⁴ on Vista (k 16):
+      fp 46 s, mvt 10 s, pareto 6 s, imf 7 s. Of fp's 46 s only 1.1 s is evaluations, 4.8 s fits, 2.3 s pilot: about
+      37 s is the loop's serial bookkeeping (span tests, kernel tests, leverage, cuts, quantiles); mvt likewise 7 of 10 s.
+      Profile ONE fp draw (scripts/run.py fp all qij --eps 0.01 --N 10000 --draws 0:1 --workers 1 --k <laptop cores>
+      under cProfile; a run was started 11-16 and stopped on the author's order, nothing recorded), fix the hot spots,
+      then the Vista jobs. The 11-13 draws' records hold the full timing split (pilot_cells_s, pilot_eval_s, fit_s,
+      eval_s, total_s, busy_s) for every dataset and ε.
+- [ ] then: generate + submit the 55 qij jobs on Vista at the fixed commit (author's go per set) → rsync
+      $WORK/projects/QIJ_JOINT/runs into Research/QIJ_joint/runs → manifests/README → summaries → figures
 - [ ] budget rule note: imf and pareto are 1-D data, so r = 1 and M = 49 at ε = 0.01; fp r = 3, M = 1319;
       mvt clusters in its 10-D coordinates, r = 2, M = 300
 - [ ] stale files deleted; vqboot branches (separate, not for the talk)
