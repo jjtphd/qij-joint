@@ -3,7 +3,7 @@
 #
 #   runs/<dataset>_N<N>/{oracle, ij_<estimator>, boot_B<B>, qij_<estimator>_eps<eps>}/
 #
-# One job = one case and one method, over draws FIRST..LAST (default 0..1000), one draw per core: the draws
+# One job = one case and one method, over draws FIRST..LAST (default 0..1000). oracle, ij, boot: one draw per core, the draws
 # are fanned out with xargs -P 144, each as its own `scripts/run.py ... --workers 1` process, into
 # $SCRATCH/QIJ_JOINT/runs (the tree); when the job ends it rsyncs the tree to $WORK/projects/QIJ_JOINT/runs.
 # For qij the job takes a list of eps and runs them one after another (each over all its draws). The code is
@@ -26,11 +26,10 @@ COMMIT=${COMMIT:?COMMIT=<hash the clone must be at>}
 CLONE=${CLONE:-/work2/08772/jjt277/stampede3/software/qij_joint}
 VENV=${VENV:-/home1/08772/jjt277/envs/qij_vista}
 ACCOUNT=AST24021; PARTITION=gg; CORES=144; N=${N:-10000}; SEED=0
-# qij: k = the node's core count (the author's rule, 2026-11-16: k = the number of available cores on any run), passed
-# explicitly; one worker per draw, 144 draws at a time, so every core is busy throughout (the 2026-11-13 run at 16
-# workers x 9 draws per node loaded the node at 18 of 144: a refit of these estimators takes milliseconds and the
-# draw's time is the method's serial work, so a pool idles). Workers only parallelise the evaluations; k shapes the tree.
-QIJ_WORKERS=${QIJ_WORKERS:-1}; QIJ_K=${QIJ_K:-$CORES}; QIJ_PAR=$((CORES / QIJ_WORKERS))
+# qij (the author's rule, 2026-11-16): one draw at a time per node, 144 workers, k = 144 (k = the number of available
+# cores on any run). One run.py process per job runs the draws in sequence with one pool. oracle, ij and boot: one
+# draw per core.
+QIJ_WORKERS=${QIJ_WORKERS:-$CORES}; QIJ_K=${QIJ_K:-$CORES}
 FIRST=${FIRST:-0}; LAST=${LAST:-1000}
 SCR=${SCRATCH:?SCRATCH not set}/QIJ_JOINT
 PROJ=${WORK:?WORK not set}/projects/QIJ_JOINT
@@ -48,15 +47,23 @@ job() {
     local name=$1 wall=$2 runs=$3 dest=$4; shift 4
     local body=""
     for line in "$@"; do
-        # a line is "<dataset> <estimator> <method> [extra flags]"; the draws are fanned out over the node: one per core for
-        # oracle, ij and boot; QIJ_PAR at a time with QIJ_WORKERS workers each for qij
-        local par=$CORES wk=1
-        case "$line" in *" qij"*) par=$QIJ_PAR; wk=$QIJ_WORKERS; line="$line --k $QIJ_K";; esac
-        body+="
-echo \"--- \$(date '+%F %T') $line draws $FIRST:$LAST, $par at a time, $wk worker(s) each\"
+        # a line is "<dataset> <estimator> <method> [extra flags]". oracle, ij, boot: the draws are fanned out over the node,
+        # one per core, each its own run.py process. qij: one run.py process, the draws in sequence, QIJ_WORKERS workers, k = QIJ_K.
+        case "$line" in
+        *" qij"*)
+            body+="
+echo \"--- \$(date '+%F %T') $line draws $FIRST:$LAST, one at a time, $QIJ_WORKERS workers, k $QIJ_K\"
+python \$STAGE/scripts/run.py $line --N $N --draws $FIRST:$LAST --seed $SEED --workers $QIJ_WORKERS --k $QIJ_K --out $runs \\
+    > $LOGS/${name}_$(echo "$line" | tr ' ' _).log 2>&1 || echo \"[$line] exited \$? (finished draws are on disk; resubmit fills in)\""
+            ;;
+        *)
+            body+="
+echo \"--- \$(date '+%F %T') $line draws $FIRST:$LAST, $CORES at a time, 1 worker each\"
 mkdir -p $LOGS/${name}_draws
-seq $FIRST $((LAST - 1)) | xargs -P $par -I{} sh -c \\
-    'python \$STAGE/scripts/run.py $line --N $N --draws \$1:\$((\$1 + 1)) --seed $SEED --workers $wk --out $runs > $LOGS/${name}_draws/\$(echo \"$line\" | tr \" \" _)_s\$1.log 2>&1 || echo \"draw \$1 of [$line] failed (exit \$?)\"' _ {}"
+seq $FIRST $((LAST - 1)) | xargs -P $CORES -I{} sh -c \\
+    'python \$STAGE/scripts/run.py $line --N $N --draws \$1:\$((\$1 + 1)) --seed $SEED --workers 1 --out $runs > $LOGS/${name}_draws/\$(echo \"$line\" | tr \" \" _)_s\$1.log 2>&1 || echo \"draw \$1 of [$line] failed (exit \$?)\"' _ {}"
+            ;;
+        esac
     done
     cat > "$JOBS/$name.sh" <<EOF
 #!/bin/bash
@@ -105,12 +112,15 @@ refs)
     done
     ;;
 qij)
-    # one job per dataset over all eps; walls from the 2026-11-13 records' busy_s at eps 0.01 (the largest eps cost): sheared
-    # Core 1 47 s, fp 45 s, mvt 10 s, imf 10 s, pareto 6 s per draw, 144 draws at a time -> at most 6 min per eps, about
-    # 1 h for the 11 eps of Core 1 or fp. A job that reaches its wall is resubmitted: finished draws are skipped.
+    # one job per dataset and eps, the 1000 draws in sequence on one node. Walls from the 2026-11-13 records' per-draw wall at
+    # eps 0.01 and k 16 (Core 1 15 s, fp 46 s, mvt 10 s, imf 7 s, pareto 6 s; the serial part dominates, so 144 workers
+    # change little): Core 1 about 4 h, fp about 13 h, the others under 3 h. A job that reaches its wall is resubmitted:
+    # finished draws are skipped.
     for ds in "cloudfil_u p1" "mvt all" "fp all" "imf all" "pareto all"; do
-        lines=(); for eps in $EPS_ALL; do lines+=("$ds qij --eps $eps"); done
-        job "qij_${ds%% *}" 03:00:00 "$SCR/runs" "$PROJ/runs" "${lines[@]}"
+        wall=04:00:00; case "$ds" in cloudfil*) wall=08:00:00;; fp*) wall=24:00:00;; esac
+        for eps in $EPS_ALL; do
+            job "qij_${ds%% *}_eps${eps:0:6}" "$wall" "$SCR/runs" "$PROJ/runs" "$ds qij --eps $eps"
+        done
     done
     ;;
 *) echo "unknown job set $SET"; exit 1 ;;
