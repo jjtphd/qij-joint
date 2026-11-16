@@ -115,8 +115,8 @@ qij)
     # one job per dataset and eps, the 1000 draws in sequence on one node. Walls from the 2026-11-13 records' per-draw wall at
     # eps 0.01 and k 16 (Core 1 15 s, fp 46 s, mvt 10 s, imf 7 s, pareto 6 s; the serial part dominates, so 144 workers
     # change little): Core 1 about 4 h, fp about 13 h, the others under 3 h. A job that reaches its wall is resubmitted:
-    # finished draws are skipped.
-    for ds in "cloudfil_u p1" "mvt all" "fp all" "imf all" "pareto all"; do
+    # finished draws are skipped. Submission order (batches.txt): the short jobs first, fp's 11 long jobs last.
+    for ds in "cloudfil_u p1" "mvt all" "imf all" "pareto all" "fp all"; do
         wall=04:00:00; case "$ds" in cloudfil*) wall=08:00:00;; fp*) wall=24:00:00;; esac
         for eps in $EPS_ALL; do
             job "qij_${ds%% *}_eps${eps:0:6}" "$wall" "$SCR/runs" "$PROJ/runs" "$ds qij --eps $eps"
