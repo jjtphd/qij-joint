@@ -26,11 +26,11 @@ COMMIT=${COMMIT:?COMMIT=<hash the clone must be at>}
 CLONE=${CLONE:-/work2/08772/jjt277/stampede3/software/qij_joint}
 VENV=${VENV:-/home1/08772/jjt277/envs/qij_vista}
 ACCOUNT=AST24021; PARTITION=gg; CORES=144; N=${N:-10000}; SEED=0
-# qij: one worker per draw, 144 draws at a time, k = 16 passed explicitly (k, the cap on splits per round, defaults to the
-# worker count; the 2026-11-13 run at 16 workers x 9 draws per node loaded the node at 18 of 144: a refit of these
-# estimators takes milliseconds, the draw's time is the method's serial work, so the pool idles). The records are the
-# same as at 16 workers with k = 16: workers only parallelise the evaluations.
-QIJ_WORKERS=${QIJ_WORKERS:-1}; QIJ_K=${QIJ_K:-16}; QIJ_PAR=$((CORES / QIJ_WORKERS))
+# qij: k = the node's core count (the author's rule, 2026-11-16: k = the number of available cores on any run), passed
+# explicitly; one worker per draw, 144 draws at a time, so every core is busy throughout (the 2026-11-13 run at 16
+# workers x 9 draws per node loaded the node at 18 of 144: a refit of these estimators takes milliseconds and the
+# draw's time is the method's serial work, so a pool idles). Workers only parallelise the evaluations; k shapes the tree.
+QIJ_WORKERS=${QIJ_WORKERS:-1}; QIJ_K=${QIJ_K:-$CORES}; QIJ_PAR=$((CORES / QIJ_WORKERS))
 FIRST=${FIRST:-0}; LAST=${LAST:-1000}
 SCR=${SCRATCH:?SCRATCH not set}/QIJ_JOINT
 PROJ=${WORK:?WORK not set}/projects/QIJ_JOINT
